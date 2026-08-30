@@ -485,9 +485,7 @@ fun SettingsTab(
 ) {
     val moods = listOf(
         Triple("midnight", "🌙", "Midnight"), Triple("sunset", "🌅", "Sunset"),        Triple("ocean", "❄️", "Ice"),
-        Triple("forest", "💚", "Emerald"), Triple("neon", "💎", "Neon"),        Triple("rose", "🌸", "Rose")
-    )
-    val moodsRow2 = listOf(
+        Triple("forest", "💚", "Emerald"), Triple("neon", "💎", "Neon"),        Triple("rose", "🌸", "Rose"),
         Triple("blood", "🩸", "Blood"),
         Triple("light", "☀️", "Light"),
         Triple("amber", "🍯", "Amber")
@@ -499,27 +497,15 @@ fun SettingsTab(
 
         Text("MOOD", style = MaterialTheme.typography.labelSmall, color = Muted, letterSpacing = 1.5.sp)
         Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            // First row: first 3 moods
-        }
-        // Mood grid - row 1
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            moods.take(3).forEach { (key, emoji, label) ->
-                MoodCard(key = key, emoji = emoji, label = label, isActive = moodName == key, mood = mood,
-                    modifier = Modifier.weight(1f), onClick = { onMoodChange(key) })
+        // 3x3 grid
+        (0..2).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                moods.drop(row * 3).take(3).forEach { (key, emoji, label) ->
+                    MoodCard(key = key, emoji = emoji, label = label, isActive = moodName == key, mood = mood,
+                        modifier = Modifier.weight(1f), onClick = { onMoodChange(key) })
+                }
             }
-        }
-        Spacer(Modifier.height(8.dp))
-        // Mood grid - row 2
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            moods.drop(3).forEach { (key, emoji, label) ->
-                MoodCard(key = key, emoji = emoji, label = label, isActive = moodName == key, mood = mood,
-                    modifier = Modifier.weight(1f), onClick = { onMoodChange(key) })
-            }
-            moodsRow2.forEach { (key, emoji, label) ->
-                MoodCard(key = key, emoji = emoji, label = label, isActive = moodName == key, mood = mood,
-                    modifier = Modifier.weight(1f), onClick = { onMoodChange(key) })
-            }
+            if (row < 2) Spacer(Modifier.height(8.dp))
         }
 
         Spacer(Modifier.height(24.dp))
