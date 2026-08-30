@@ -8,7 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -288,39 +288,53 @@ fun MainScreen(
                 }
             }
 
-            when (selectedTab) {
-                0 -> PlayerTab(
-                    currentSong = currentSong, isPlaying = isPlaying,
-                    currentPosition = currentPosition, duration = duration,
-                    isShuffle = isShuffle, repeatMode = repeatMode, mood = mood,
-                    onPlayPause = {
-                        getController()?.let { c ->
-                            if (c.isPlaying) { c.pause(); isPlaying = false }
-                            else {
-                                if (c.mediaItemCount == 0 && currentSong != null) { c.setMediaItem(MediaItem.fromUri(currentSong!!.uri)); c.prepare() }
-                                c.play(); isPlaying = true
-                            }
-                        }
-                    },
-                    onSeek = { getController()?.seekTo(it); currentPosition = it },
-                    onSkipNext = ::playNext, onSkipPrevious = ::playPrevious,
-                    onToggleShuffle = { isShuffle = !isShuffle },
-                    onToggleRepeat = { repeatMode = (repeatMode + 1) % 3 }
-                )
-                1 -> LibraryTab(
-                    folderName = folderName, playlist = playlist, currentSong = currentSong, mood = mood,
-                    onSelectFolder = { folderPickerLauncher.launch(null) },
-                    onSelectSong = ::playSong
-                )
-                2 -> SettingsTab(
-                    folderName = folderName, moodName = moodName, mood = mood,
-                    onChangeFolder = { folderPickerLauncher.launch(null) },
-                    onMoodChange = onMoodChange,
-                    onClearFolder = {
-                        prefs.edit().remove(KEY_FOLDER_URI).apply()
-                        playlist = listOf(); currentSong = null; folderName = "No folder selected"
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    if (targetState > initialState) {
+                        slideInHorizontally(tween(250)) { it / 4 } + fadeIn(tween(250)) togetherWith
+                        slideOutHorizontally(tween(250)) { -it / 4 } + fadeOut(tween(200))
+                    } else {
+                        slideInHorizontally(tween(250)) { -it / 4 } + fadeIn(tween(250)) togetherWith
+                        slideOutHorizontally(tween(250)) { it / 4 } + fadeOut(tween(200))
                     }
-                )
+                },
+                label = "tabTransition"
+            ) { tab ->
+                when (tab) {
+                    0 -> PlayerTab(
+                        currentSong = currentSong, isPlaying = isPlaying,
+                        currentPosition = currentPosition, duration = duration,
+                        isShuffle = isShuffle, repeatMode = repeatMode, mood = mood,
+                        onPlayPause = {
+                            getController()?.let { c ->
+                                if (c.isPlaying) { c.pause(); isPlaying = false }
+                                else {
+                                    if (c.mediaItemCount == 0 && currentSong != null) { c.setMediaItem(MediaItem.fromUri(currentSong!!.uri)); c.prepare() }
+                                    c.play(); isPlaying = true
+                                }
+                            }
+                        },
+                        onSeek = { getController()?.seekTo(it); currentPosition = it },
+                        onSkipNext = ::playNext, onSkipPrevious = ::playPrevious,
+                        onToggleShuffle = { isShuffle = !isShuffle },
+                        onToggleRepeat = { repeatMode = (repeatMode + 1) % 3 }
+                    )
+                    1 -> LibraryTab(
+                        folderName = folderName, playlist = playlist, currentSong = currentSong, mood = mood,
+                        onSelectFolder = { folderPickerLauncher.launch(null) },
+                        onSelectSong = ::playSong
+                    )
+                    2 -> SettingsTab(
+                        folderName = folderName, moodName = moodName, mood = mood,
+                        onChangeFolder = { folderPickerLauncher.launch(null) },
+                        onMoodChange = onMoodChange,
+                        onClearFolder = {
+                            prefs.edit().remove(KEY_FOLDER_URI).apply()
+                            playlist = listOf(); currentSong = null; folderName = "No folder selected"
+                        }
+                    )
+                }
             }
         }
     }
