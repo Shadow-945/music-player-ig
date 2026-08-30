@@ -17,6 +17,10 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -26,6 +30,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import kotlin.math.floor
 
 data class Song(val title: String, val uri: Uri)
 
@@ -72,6 +77,8 @@ fun MainScreen(context: android.content.Context, getController: () -> MediaContr
     var currentSong by remember { mutableStateOf<Song?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var folderName by remember { mutableStateOf("No folder selected") }
+    var currentPosition by remember { mutableLongStateOf(0L) }
+    var duration by remember { mutableLongStateOf(0L) }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -118,10 +125,24 @@ fun MainScreen(context: android.content.Context, getController: () -> MediaContr
         }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
+            // Poll playback position while playing
+            LaunchedEffect(isPlaying) {
+                while (isPlaying) {
+                    val controller = getController()
+                    if (controller != null) {
+                        currentPosition = controller.currentPosition
+                        duration = controller.duration.coerceAtLeast(0)
+                    }
+                    delay(500)
+                }
+            }
+
             if (selectedTab == 0) {
                 PlayerTab(
                     currentSong = currentSong,
                     isPlaying = isPlaying,
+                    currentPosition = currentPosition,
+                    duration = duration,
                     onPlayPause = {
                         val controller = getController()
                         if (controller != null) {
@@ -137,6 +158,10 @@ fun MainScreen(context: android.content.Context, getController: () -> MediaContr
                                 isPlaying = true
                             }
                         }
+                    },
+                    onSeek = { seekMs ->
+                        getController()?.seekTo(seekMs)
+                        currentPosition = seekMs
                     }
                 )
             } else {
@@ -160,8 +185,25 @@ fun MainScreen(context: android.content.Context, getController: () -> MediaContr
     }
 }
 
+fun formatTime(ms: Long): String {
+    val totalSeconds = floor(ms / 1000.0).toLong()
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d".format(minutes, seconds)
+}
+
 @Composable
-fun PlayerTab(currentSong: Song?, isPlaying: Boolean, onPlayPause: () -> Unit) {
+fun PlayerTab(
+    currentSong: Song?,
+    isPlaying: Boolean,
+    currentPosition: Long,
+    duration: Long,
+    onPlayPause: () -> Unit,
+    onSeek: (Long) -> Unit
+) {
+    var isSeeking by remember { mutableStateOf(false) }
+    var seekPosition by remember { mutableStateOf(0f) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -181,6 +223,39 @@ fun PlayerTab(currentSong: Song?, isPlaying: Boolean, onPlayPause: () -> Unit) {
             style = MaterialTheme.typography.titleLarge
         )
         Spacer(modifier = Modifier.height(32.dp))
+
+        // Seek slider
+        if (duration > 0) {
+            val sliderValue = if (isSeeking) seekPosition else currentPosition.toFloat().coerceIn(0f, duration.toFloat())
+            Slider(
+                value = sliderValue,
+                onValueChange = { value ->
+                    isSeeking = true
+                    seekPosition = value
+                },
+                onValueChangeFinished = {
+                    isSeeking = false
+                    onSeek(seekPosition.toLong())
+                },
+                valueRange = 0f..duration.toFloat(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = formatTime(if (isSeeking) seekPosition.toLong() else currentPosition),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    text = formatTime(duration),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
         Row(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
