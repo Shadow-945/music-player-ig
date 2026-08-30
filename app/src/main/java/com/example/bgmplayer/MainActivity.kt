@@ -465,7 +465,7 @@ fun LibraryTab(
                     shape = RoundedCornerShape(10.dp)) {
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         if (isCurrent) Icon(Icons.Default.MusicNote, null, Modifier.size(18.dp), tint = mood.accent)
-                        else Text("${index + 1}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF1A1A1A), Modifier.width(22.dp))
+                        else Text("${index + 1}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF1A1A1A), modifier = Modifier.width(22.dp))
                         Spacer(Modifier.width(12.dp))
                         Text(song.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal),
                             maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (isCurrent) mood.accent else DimText,
