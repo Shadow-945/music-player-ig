@@ -1,6 +1,7 @@
 package com.example.bgmplayer
 
 import android.content.ComponentName
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -15,12 +16,9 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -33,6 +31,23 @@ import com.google.common.util.concurrent.MoreExecutors
 import kotlin.math.floor
 
 data class Song(val title: String, val uri: Uri)
+
+private const val PREFS_NAME = "bgm_player_prefs"
+private const val KEY_FOLDER_URI = "last_folder_uri"
+
+fun loadSongsFromFolder(context: Context, treeUri: Uri): Pair<String, List<Song>> {
+    val docDir = DocumentFile.fromTreeUri(context, treeUri)
+    val name = docDir?.name ?: "Selected Folder"
+    val songs = mutableListOf<Song>()
+    docDir?.listFiles()?.forEach { file ->
+        if (file.isFile && (file.name?.lowercase()?.endsWith(".mp3") == true)) {
+            file.name?.let { songName ->
+                songs.add(Song(songName, file.uri))
+            }
+        }
+    }
+    return Pair(name, songs)
+}
 
 class MainActivity : ComponentActivity() {
     private lateinit var controllerFuture: ListenableFuture<MediaController>
@@ -48,7 +63,6 @@ class MainActivity : ComponentActivity() {
         }, MoreExecutors.directExecutor())
 
         setContent {
-            // Dark Mode Theme enabled by default
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -79,29 +93,56 @@ fun MainScreen(context: android.content.Context, getController: () -> MediaContr
     var folderName by remember { mutableStateOf("No folder selected") }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
+    var folderLoaded by remember { mutableStateOf(false) }
+
+    val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+
+    // Helper to load songs from a URI and save it
+    fun loadAndSaveFolder(treeUri: Uri) {
+        context.contentResolver.takePersistableUriPermission(
+            treeUri,
+            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+        )
+        val (name, songs) = loadSongsFromFolder(context, treeUri)
+        folderName = name
+        playlist = songs
+        if (songs.isNotEmpty() && currentSong == null) {
+            currentSong = songs.first()
+        }
+        // Save to SharedPreferences
+        prefs.edit().putString(KEY_FOLDER_URI, treeUri.toString()).apply()
+    }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
-        uri?.let { treeUri ->
-            context.contentResolver.takePersistableUriPermission(
-                treeUri,
-                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-            val docDir = DocumentFile.fromTreeUri(context, treeUri)
-            folderName = docDir?.name ?: "Selected Folder"
-            
-            val loadedSongs = mutableListOf<Song>()
-            docDir?.listFiles()?.forEach { file ->
-                if (file.isFile && (file.name?.lowercase()?.endsWith(".mp3") == true)) {
-                    file.name?.let { name ->
-                        loadedSongs.add(Song(name, file.uri))
+        uri?.let { loadAndSaveFolder(it) }
+    }
+
+    // Restore last folder on launch
+    LaunchedEffect(Unit) {
+        if (!folderLoaded) {
+            folderLoaded = true
+            val savedUri = prefs.getString(KEY_FOLDER_URI, null)
+            if (savedUri != null) {
+                try {
+                    val uri = Uri.parse(savedUri)
+                    // Check if we still have permission
+                    val hasPermission = context.contentResolver.persistedUriPermissions.any {
+                        it.uri == uri && it.isReadPermission
                     }
+                    if (hasPermission) {
+                        val (name, songs) = loadSongsFromFolder(context, uri)
+                        folderName = name
+                        playlist = songs
+                        if (songs.isNotEmpty()) {
+                            currentSong = songs.first()
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Folder no longer accessible, clear saved preference
+                    prefs.edit().remove(KEY_FOLDER_URI).apply()
                 }
-            }
-            playlist = loadedSongs
-            if (playlist.isNotEmpty() && currentSong == null) {
-                currentSong = playlist.first()
             }
         }
     }
@@ -121,6 +162,12 @@ fun MainScreen(context: android.content.Context, getController: () -> MediaContr
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 }
                 )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                    label = { Text("Settings") },
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 }
+                )
             }
         }
     ) { innerPadding ->
@@ -137,8 +184,8 @@ fun MainScreen(context: android.content.Context, getController: () -> MediaContr
                 }
             }
 
-            if (selectedTab == 0) {
-                PlayerTab(
+            when (selectedTab) {
+                0 -> PlayerTab(
                     currentSong = currentSong,
                     isPlaying = isPlaying,
                     currentPosition = currentPosition,
@@ -164,8 +211,7 @@ fun MainScreen(context: android.content.Context, getController: () -> MediaContr
                         currentPosition = seekMs
                     }
                 )
-            } else {
-                LibraryTab(
+                1 -> LibraryTab(
                     folderName = folderName,
                     playlist = playlist,
                     onSelectFolder = {
@@ -178,6 +224,18 @@ fun MainScreen(context: android.content.Context, getController: () -> MediaContr
                         controller?.prepare()
                         controller?.play()
                         isPlaying = true
+                    }
+                )
+                2 -> SettingsTab(
+                    folderName = folderName,
+                    onChangeFolder = {
+                        folderPickerLauncher.launch(null)
+                    },
+                    onClearFolder = {
+                        prefs.edit().remove(KEY_FOLDER_URI).apply()
+                        playlist = listOf()
+                        currentSong = null
+                        folderName = "No folder selected"
                     }
                 )
             }
@@ -322,6 +380,76 @@ fun LibraryTab(
                         Text(text = song.title, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsTab(
+    folderName: String,
+    onChangeFolder: () -> Unit,
+    onClearFolder: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Settings",
+            style = MaterialTheme.typography.headlineMedium
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Current folder section
+        Text(
+            text = "Music Folder",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = folderName,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(onClick = onChangeFolder) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Change Folder")
+                    }
+                    OutlinedButton(onClick = onClearFolder) {
+                        Text("Clear")
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // About section
+        Text(
+            text = "About",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(text = "BGM Player", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    text = "Version 1.0",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
