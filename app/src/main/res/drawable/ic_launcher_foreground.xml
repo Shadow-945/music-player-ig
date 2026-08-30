@@ -4,15 +4,16 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Note head (filled oval) -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,30 L54,62 M42,50 A8,8 0 1,1 66,50 A8,8 0 1,1 42,50"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3" />
+        android:fillColor="#E0D0FF"
+        android:pathData="M42,62 C42,57 47,53 53,53 C59,53 64,57 64,62 C64,67 59,71 53,71 C47,71 42,67 42,62 Z" />
+    <!-- Stem -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M48,28 C48,28 50,24 54,24 C58,24 60,28 60,28"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3"
-        android:strokeLineCap="round" />
+        android:fillColor="#E0D0FF"
+        android:pathData="M56,54 L59,54 L59,30 L56,30 Z" />
+    <!-- Flag -->
+    <path
+        android:fillColor="#E0D0FF"
+        android:pathData="M59,30 C59,30 70,34 70,42 C70,38 64,35 59,34 Z" />
 </vector>
