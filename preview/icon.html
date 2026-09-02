@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>App Icon Preview</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #000;
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    flex-direction: column;
+    gap: 40px;
+  }
+  h2 { font-size: 18px; font-weight: 600; }
+
+  .sizes {
+    display: flex;
+    gap: 30px;
+    align-items: flex-end;
+  }
+  .size-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .size-label { font-size: 11px; color: #444; }
+
+  .icon {
+    border-radius: 22%;
+    overflow: hidden;
+    position: relative;
+    background: #0c0514;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+  }
+  .icon-round { border-radius: 50%; }
+
+  /* Concentric circles */
+  .ring-outer {
+    position: absolute;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: conic-gradient(from 180deg, #FF6B00, #FF1493, #00D4FF, #FF6B00);
+    -webkit-mask: radial-gradient(circle, transparent 60%, black 60%, black 66%, transparent 66%);
+    mask: radial-gradient(circle, transparent 60%, black 60%, black 66%, transparent 66%);
+  }
+  .ring-mid {
+    position: absolute;
+    border-radius: 50%;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, #0a0318 0%, #120828 70%, #1a0e35 100%);
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+  }
+  .ring-inner {
+    position: absolute;
+    border-radius: 50%;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, #080210 0%, #0e0620 100%);
+    box-shadow: inset 0 0 12px rgba(0,0,0,0.9);
+  }
+
+  /* Music note */
+  .note {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .note-head {
+    width: 18px; height: 14px;
+    background: linear-gradient(135deg, #FF1493, #00D4FF);
+    border-radius: 50%;
+    transform: rotate(-20deg);
+    position: absolute;
+    bottom: 0; left: 0;
+    box-shadow: 0 0 12px rgba(255,20,147,0.4), 0 0 24px rgba(0,212,255,0.3);
+  }
+  .note-stem {
+    width: 4px; height: 28px;
+    background: linear-gradient(180deg, #FF1493, #00D4FF);
+    position: absolute;
+    right: 12px; top: -28px;
+    border-radius: 2px;
+  }
+  .note-flag {
+    width: 14px; height: 14px;
+    border-right: 4px solid #FF1493;
+    border-top: 4px solid #FF1493;
+    border-radius: 0 12px 0 0;
+    position: absolute;
+    right: 0; top: -28px;
+  }
+
+  /* Glow effect */
+  .glow {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,20,147,0.08) 0%, transparent 70%);
+  }
+</style>
+</head>
+<body>
+
+<h2>New App Icon</h2>
+
+<div class="sizes">
+  <!-- xxxhdpi -->
+  <div class="size-item">
+    <div class="icon" style="width: 96px; height: 96px;">
+      <div class="glow" style="width: 90px; height: 90px;"></div>
+      <div class="ring-outer" style="width: 88px; height: 88px;"></div>
+      <div class="ring-mid" style="width: 72px; height: 72px;"></div>
+      <div class="ring-inner" style="width: 48px; height: 48px;"></div>
+      <div class="note">
+        <div class="note-head"></div>
+        <div class="note-stem"></div>
+        <div class="note-flag"></div>
+      </div>
+    </div>
+    <span class="size-label">xxxhdpi</span>
+  </div>
+
+  <!-- xxhdpi -->
+  <div class="size-item">
+    <div class="icon" style="width: 72px; height: 72px;">
+      <div class="glow" style="width: 68px; height: 68px;"></div>
+      <div class="ring-outer" style="width: 66px; height: 66px;"></div>
+      <div class="ring-mid" style="width: 54px; height: 54px;"></div>
+      <div class="ring-inner" style="width: 36px; height: 36px;"></div>
+      <div class="note" style="transform: translate(-50%, -50%) scale(0.75);">
+        <div class="note-head"></div>
+        <div class="note-stem"></div>
+        <div class="note-flag"></div>
+      </div>
+    </div>
+    <span class="size-label">xxhdpi</span>
+  </div>
+
+  <!-- xhdpi -->
+  <div class="size-item">
+    <div class="icon" style="width: 48px; height: 48px;">
+      <div class="glow" style="width: 44px; height: 44px;"></div>
+      <div class="ring-outer" style="width: 44px; height: 44px;"></div>
+      <div class="ring-mid" style="width: 36px; height: 36px;"></div>
+      <div class="ring-inner" style="width: 24px; height: 24px;"></div>
+      <div class="note" style="transform: translate(-50%, -50%) scale(0.5);">
+        <div class="note-head"></div>
+        <div class="note-stem"></div>
+        <div class="note-flag"></div>
+      </div>
+    </div>
+    <span class="size-label">xhdpi</span>
+  </div>
+
+  <!-- hdpi -->
+  <div class="size-item">
+    <div class="icon" style="width: 36px; height: 36px;">
+      <div class="glow" style="width: 32px; height: 32px;"></div>
+      <div class="ring-outer" style="width: 33px; height: 33px;"></div>
+      <div class="ring-mid" style="width: 27px; height: 27px;"></div>
+      <div class="ring-inner" style="width: 18px; height: 18px;"></div>
+      <div class="note" style="transform: translate(-50%, -50%) scale(0.38);">
+        <div class="note-head"></div>
+        <div class="note-stem"></div>
+        <div class="note-flag"></div>
+      </div>
+    </div>
+    <span class="size-label">hdpi</span>
+  </div>
+
+  <!-- mdpi -->
+  <div class="size-item">
+    <div class="icon" style="width: 24px; height: 24px;">
+      <div class="glow" style="width: 22px; height: 22px;"></div>
+      <div class="ring-outer" style="width: 22px; height: 22px;"></div>
+      <div class="ring-mid" style="width: 18px; height: 18px;"></div>
+      <div class="ring-inner" style="width: 12px; height: 12px;"></div>
+      <div class="note" style="transform: translate(-50%, -50%) scale(0.25);">
+        <div class="note-head"></div>
+        <div class="note-stem"></div>
+        <div class="note-flag"></div>
+      </div>
+    </div>
+    <span class="size-label">mdpi</span>
+  </div>
+</div>
+
+<h3 style="font-size: 14px; color: #444; margin-top: 20px;">Round variant</h3>
+
+<div class="sizes" style="margin-top: 16px;">
+  <div class="size-item">
+    <div class="icon icon-round" style="width: 96px; height: 96px;">
+      <div class="glow" style="width: 90px; height: 90px;"></div>
+      <div class="ring-outer" style="width: 88px; height: 88px;"></div>
+      <div class="ring-mid" style="width: 72px; height: 72px;"></div>
+      <div class="ring-inner" style="width: 48px; height: 48px;"></div>
+      <div class="note">
+        <div class="note-head"></div>
+        <div class="note-stem"></div>
+        <div class="note-flag"></div>
+      </div>
+    </div>
+    <span class="size-label">xxxhdpi</span>
+  </div>
+  <div class="size-item">
+    <div class="icon icon-round" style="width: 72px; height: 72px;">
+      <div class="glow" style="width: 68px; height: 68px;"></div>
+      <div class="ring-outer" style="width: 66px; height: 66px;"></div>
+      <div class="ring-mid" style="width: 54px; height: 54px;"></div>
+      <div class="ring-inner" style="width: 36px; height: 36px;"></div>
+      <div class="note" style="transform: translate(-50%, -50%) scale(0.75);">
+        <div class="note-head"></div>
+        <div class="note-stem"></div>
+        <div class="note-flag"></div>
+      </div>
+    </div>
+    <span class="size-label">xxhdpi</span>
+  </div>
+  <div class="size-item">
+    <div class="icon icon-round" style="width: 48px; height: 48px;">
+      <div class="glow" style="width: 44px; height: 44px;"></div>
+      <div class="ring-outer" style="width: 44px; height: 44px;"></div>
+      <div class="ring-mid" style="width: 36px; height: 36px;"></div>
+      <div class="ring-inner" style="width: 24px; height: 24px;"></div>
+      <div class="note" style="transform: translate(-50%, -50%) scale(0.5);">
+        <div class="note-head"></div>
+        <div class="note-stem"></div>
+        <div class="note-flag"></div>
+      </div>
+    </div>
+    <span class="size-label">xhdpi</span>
+  </div>
+</div>
+
+</body>
+</html>

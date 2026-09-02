@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BGM Player - Settings</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #000;
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+  }
+  .phone {
+    width: 375px;
+    height: 720px;
+    background: #000;
+    border-radius: 24px;
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 0 30px var(--glow);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: all 0.4s;
+  }
+  :root {
+    --accent: #7c3aed; --accent-rgb: 124,58,237;
+    --glow: rgba(124,58,237,0.06);
+    --accent-soft: rgba(124,58,237,0.15);
+    --accent-border: rgba(124,58,237,0.4);
+  }
+  [data-theme="midnight"] { --accent: #7c3aed; --accent-rgb: 124,58,237; --glow: rgba(124,58,237,0.06); --accent-soft: rgba(124,58,237,0.15); --accent-border: rgba(124,58,237,0.4); }
+  [data-theme="sunset"] { --accent: #f97316; --accent-rgb: 249,115,22; --glow: rgba(249,115,22,0.06); --accent-soft: rgba(249,115,22,0.15); --accent-border: rgba(249,115,22,0.4); }
+  [data-theme="ocean"] { --accent: #06b6d4; --accent-rgb: 6,182,212; --glow: rgba(6,182,212,0.06); --accent-soft: rgba(6,182,212,0.15); --accent-border: rgba(6,182,212,0.4); }
+  [data-theme="forest"] { --accent: #22c55e; --accent-rgb: 34,197,94; --glow: rgba(34,197,94,0.06); --accent-soft: rgba(34,197,94,0.15); --accent-border: rgba(34,197,94,0.4); }
+  [data-theme="neon"] { --accent: #ec4899; --accent-rgb: 236,72,153; --glow: rgba(236,72,153,0.06); --accent-soft: rgba(236,72,153,0.15); --accent-border: rgba(236,72,153,0.4); }
+  [data-theme="rose"] { --accent: #e879f9; --accent-rgb: 232,121,249; --glow: rgba(232,121,249,0.06); --accent-soft: rgba(232,121,249,0.15); --accent-border: rgba(232,121,249,0.4); }
+  .screen { flex: 1; padding: 16px; overflow-y: auto; }
+  .title { font-size: 26px; font-weight: 700; margin-bottom: 24px; }
+  .section-label {
+    font-size: 11px; font-weight: 600; color: #333;
+    text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;
+  }
+  .mood-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 28px; }
+  .mood-card {
+    border-radius: 14px; padding: 18px 8px; display: flex; flex-direction: column;
+    align-items: center; gap: 8px; cursor: pointer;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    transition: all 0.3s; position: relative;
+  }
+  .mood-card:hover { background: rgba(255,255,255,0.06); transform: translateY(-2px); }
+  .mood-card.active { border-color: var(--mc); background: var(--mbg); box-shadow: 0 0 24px var(--mgl); }
+  .mood-emoji { font-size: 30px; }
+  .mood-name { font-size: 11px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.5px; }
+  .mood-card.active .mood-name { color: var(--mc); }
+  .mood-dot {
+    width: 6px; height: 6px; border-radius: 50%; position: absolute; top: 8px; right: 8px;
+    background: transparent; transition: all 0.3s;
+  }
+  .mood-card.active .mood-dot { background: var(--mc); box-shadow: 0 0 8px var(--mgl); }
+
+  .mood-card[data-mood="midnight"] { --mc: #7c3aed; --mbg: rgba(124,58,237,0.1); --mgl: rgba(124,58,237,0.2); }
+  .mood-card[data-mood="sunset"] { --mc: #f97316; --mbg: rgba(249,115,22,0.1); --mgl: rgba(249,115,22,0.2); }
+  .mood-card[data-mood="ocean"] { --mc: #06b6d4; --mbg: rgba(6,182,212,0.1); --mgl: rgba(6,182,212,0.2); }
+  .mood-card[data-mood="forest"] { --mc: #22c55e; --mbg: rgba(34,197,94,0.1); --mgl: rgba(34,197,94,0.2); }
+  .mood-card[data-mood="neon"] { --mc: #ec4899; --mbg: rgba(236,72,153,0.1); --mgl: rgba(236,72,153,0.2); }
+  .mood-card[data-mood="rose"] { --mc: #e879f9; --mbg: rgba(232,121,249,0.1); --mgl: rgba(232,121,249,0.2); }
+
+  .settings-card {
+    border-radius: 14px; padding: 16px; margin-bottom: 24px;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 0 12px rgba(255,255,255,0.02);
+  }
+  .settings-card p { margin-bottom: 10px; color: #ccc; }
+  .settings-btns { display: flex; gap: 10px; }
+  .folder-btn {
+    background: transparent; border: 1px solid var(--accent-border);
+    color: var(--accent); border-radius: 10px; padding: 7px 14px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; gap: 5px; transition: all 0.3s;
+  }
+  .folder-btn:hover { background: var(--accent-soft); }
+  .clear-btn {
+    background: transparent; border: 1px solid rgba(255,255,255,0.1);
+    color: #444; border-radius: 10px; padding: 7px 14px; font-size: 12px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .clear-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .small { font-size: 12px; color: #333; margin-top: 4px; }
+  .bottom-nav {
+    display: flex; background: #000; border-top: 1px solid rgba(255,255,255,0.06);
+    box-shadow: 0 -4px 16px rgba(255,255,255,0.02); padding: 6px 0;
+  }
+  .nav-item {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    gap: 2px; padding: 8px; cursor: pointer; color: #1a1a1a; font-size: 10px;
+  }
+  .nav-item.active { color: var(--accent); text-shadow: 0 0 12px rgba(var(--accent-rgb),0.4); }
+  .nav-icon { font-size: 20px; }
+</style>
+</head>
+<body data-theme="midnight">
+
+<div class="phone">
+  <div class="screen">
+    <div class="title">Settings</div>
+
+    <div class="section-label">Mood</div>
+    <div class="mood-grid">
+      <div class="mood-card active" data-mood="midnight" onclick="setMood('midnight')">
+        <div class="mood-dot"></div><span class="mood-emoji">🌙</span><span class="mood-name">Midnight</span>
+      </div>
+      <div class="mood-card" data-mood="sunset" onclick="setMood('sunset')">
+        <div class="mood-dot"></div><span class="mood-emoji">🌅</span><span class="mood-name">Sunset</span>
+      </div>
+      <div class="mood-card" data-mood="ocean" onclick="setMood('ocean')">
+        <div class="mood-dot"></div><span class="mood-emoji">🌊</span><span class="mood-name">Ocean</span>
+      </div>
+      <div class="mood-card" data-mood="forest" onclick="setMood('forest')">
+        <div class="mood-dot"></div><span class="mood-emoji">🌿</span><span class="mood-name">Forest</span>
+      </div>
+      <div class="mood-card" data-mood="neon" onclick="setMood('neon')">
+        <div class="mood-dot"></div><span class="mood-emoji">💎</span><span class="mood-name">Neon</span>
+      </div>
+      <div class="mood-card" data-mood="rose" onclick="setMood('rose')">
+        <div class="mood-dot"></div><span class="mood-emoji">🌸</span><span class="mood-name">Rose</span>
+      </div>
+    </div>
+
+    <div class="section-label">Music Folder</div>
+    <div class="settings-card">
+      <p>My Music</p>
+      <div class="settings-btns">
+        <button class="folder-btn">📁 Change Folder</button>
+        <button class="clear-btn">Clear</button>
+      </div>
+    </div>
+
+    <div class="section-label">About</div>
+    <div class="settings-card">
+      <p style="font-weight:600;">BGM Player</p>
+      <p class="small">Version 1.0</p>
+    </div>
+  </div>
+
+  <div class="bottom-nav">
+    <div class="nav-item"><span class="nav-icon">🎵</span><span>Player</span></div>
+    <div class="nav-item"><span class="nav-icon">📁</span><span>Library</span></div>
+    <div class="nav-item active"><span class="nav-icon">⚙️</span><span>Settings</span></div>
+  </div>
+</div>
+
+<script>
+function setMood(mood) {
+  document.body.setAttribute('data-theme', mood);
+  document.querySelectorAll('.mood-card').forEach(c => c.classList.remove('active'));
+  document.querySelector('.mood-card[data-mood="'+mood+'"]').classList.add('active');
+}
+</script>
+</body>
+</html>
