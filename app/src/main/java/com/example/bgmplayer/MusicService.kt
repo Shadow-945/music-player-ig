@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.media3.common.Player
@@ -76,6 +75,7 @@ class MusicService : MediaSessionService() {
             addAction(ACTION_REPEAT)
         }
         registerReceiver(controlReceiver, filter)
+        handler.post(progressUpdater)
     }
 
     private fun createNotificationChannel() {
@@ -130,12 +130,6 @@ class MusicService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
-    }
-
-    override fun onBind(intent: Intent): IBinder? {
-        handler.removeCallbacks(progressUpdater)
-        handler.post(progressUpdater)
-        return super.onBind(intent)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
