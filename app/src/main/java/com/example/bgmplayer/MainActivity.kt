@@ -1,13 +1,17 @@
 package com.example.bgmplayer
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
@@ -121,8 +125,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var controllerFuture: ListenableFuture<MediaController>
     private var mediaController: MediaController? = null
 
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestNotificationPermissionIfNeeded()
         val sessionToken = SessionToken(this, ComponentName(this, MusicService::class.java))
         controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
         controllerFuture.addListener({ mediaController = controllerFuture.get() }, MoreExecutors.directExecutor())
@@ -162,6 +170,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         MediaController.releaseFuture(controllerFuture)
@@ -187,6 +204,9 @@ fun MainScreen(
     var folderLoaded by remember { mutableStateOf(false) }
     var isShuffle by remember { mutableStateOf(false) }
     var repeatMode by remember { mutableIntStateOf(0) }
+    // The MediaController only exists once the MediaSessionService session is
+    // connected; mirror it into state so effects can key off the live player.
+    var controller by remember { mutableStateOf<MediaController?>(null) }
 
     val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 
@@ -194,51 +214,40 @@ fun MainScreen(
         context.contentResolver.takePersistableUriPermission(treeUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
         val (name, songs) = loadSongsFromFolder(context, treeUri)
         folderName = name
-        playlist = if (isShuffle) songs.shuffled() else songs
+        // Keep folder order stable; ExoPlayer owns shuffle via shuffleModeEnabled.
+        playlist = songs
         if (songs.isNotEmpty() && currentSong == null) currentSong = playlist.first()
         prefs.edit().putString(KEY_FOLDER_URI, treeUri.toString()).apply()
     }
 
     fun playSong(song: Song) {
         currentSong = song
-        val controller = getController()
-        if (controller != null) {
+        val c = getController()
+        if (c != null) {
             val index = playlist.indexOfFirst { it.uri == song.uri }
             if (index >= 0) {
                 // Load the whole queue so ExoPlayer auto-advances when a song ends
-                controller.setMediaItems(playlist.map { MediaItem.fromUri(it.uri) }, index, 0L)
+                c.setMediaItems(playlist.map { MediaItem.fromUri(it.uri) }, index, 0L)
             } else {
-                controller.setMediaItem(MediaItem.fromUri(song.uri))
+                c.setMediaItem(MediaItem.fromUri(song.uri))
             }
-            controller.prepare()
-            controller.play()
+            c.prepare()
+            c.play()
         }
         isPlaying = true
     }
 
+    // Let ExoPlayer own queue navigation so shuffle and repeat modes are honoured.
     fun playNext() {
-        if (playlist.isEmpty()) return
-        val idx = playlist.indexOfFirst { it.uri == currentSong?.uri }
-        val nextIdx = when {
-            repeatMode == 2 -> idx
-            isShuffle -> (0 until playlist.size).random()
-            idx < playlist.size - 1 -> idx + 1
-            repeatMode == 1 -> 0
-            else -> return
-        }
-        if (nextIdx in playlist.indices) playSong(playlist[nextIdx])
+        val c = getController() ?: return
+        if (c.mediaItemCount == 0) playlist.firstOrNull()?.let { playSong(it) }
+        else c.seekToNextMediaItem()
     }
 
     fun playPrevious() {
-        if (playlist.isEmpty()) return
-        val idx = playlist.indexOfFirst { it.uri == currentSong?.uri }
-        val prevIdx = when {
-            isShuffle -> (0 until playlist.size).random()
-            idx > 0 -> idx - 1
-            repeatMode == 1 -> playlist.size - 1
-            else -> return
-        }
-        if (prevIdx in playlist.indices) playSong(playlist[prevIdx])
+        val c = getController() ?: return
+        if (c.mediaItemCount == 0) playlist.firstOrNull()?.let { playSong(it) }
+        else c.seekToPreviousMediaItem()
     }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
@@ -262,30 +271,55 @@ fun MainScreen(
         }
     }
 
-    LaunchedEffect(isShuffle) { getController()?.shuffleModeEnabled = isShuffle }
-    LaunchedEffect(repeatMode) {
-        getController()?.repeatMode = when (repeatMode) { 1 -> Player.REPEAT_MODE_ALL; 2 -> Player.REPEAT_MODE_ONE; else -> Player.REPEAT_MODE_OFF }
+    // Keyed on the controller too, so settings chosen before the session connects
+    // are still applied once it does.
+    LaunchedEffect(isShuffle, controller) { controller?.shuffleModeEnabled = isShuffle }
+    LaunchedEffect(repeatMode, controller) {
+        controller?.repeatMode = when (repeatMode) { 1 -> Player.REPEAT_MODE_ALL; 2 -> Player.REPEAT_MODE_ONE; else -> Player.REPEAT_MODE_OFF }
     }
 
-    // Keep the UI in sync with the player: follow auto-advanced tracks and play/pause
-    // (including changes made from the notification buttons).
+    // Wait for the MediaSessionService session to connect, then mirror it into state.
     LaunchedEffect(Unit) {
         var c = getController()
         while (c == null) {
             kotlinx.coroutines.delay(100)
             c = getController()
         }
-        val controller = c ?: return@LaunchedEffect
-        controller.addListener(object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                val idx = controller.currentMediaItemIndex
-                if (idx in playlist.indices) currentSong = playlist[idx]
-            }
+        controller = c
+    }
 
-            override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
+    // Keep the UI in sync with the player: follow auto-advanced tracks, play/pause,
+    // and shuffle/repeat - including changes made from the media notification.
+    DisposableEffect(controller) {
+        val c = controller
+        if (c == null) {
+            onDispose { }
+        } else {
+            val listener = object : Player.Listener {
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    val idx = c.currentMediaItemIndex
+                    if (idx in playlist.indices) currentSong = playlist[idx]
+                }
+
+                override fun onIsPlayingChanged(playing: Boolean) {
+                    isPlaying = playing
+                }
+
+                override fun onShuffleModeEnabledChanged(enabled: Boolean) {
+                    isShuffle = enabled
+                }
+
+                override fun onRepeatModeChanged(mode: Int) {
+                    repeatMode = when (mode) {
+                        Player.REPEAT_MODE_ALL -> 1
+                        Player.REPEAT_MODE_ONE -> 2
+                        else -> 0
+                    }
+                }
             }
-        })
+            c.addListener(listener)
+            onDispose { c.removeListener(listener) }
+        }
     }
 
     Scaffold(
