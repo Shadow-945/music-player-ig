@@ -202,9 +202,17 @@ fun MainScreen(
     fun playSong(song: Song) {
         currentSong = song
         val controller = getController()
-        controller?.setMediaItem(MediaItem.fromUri(song.uri))
-        controller?.prepare()
-        controller?.play()
+        if (controller != null) {
+            val index = playlist.indexOfFirst { it.uri == song.uri }
+            if (index >= 0) {
+                // Load the whole queue so ExoPlayer auto-advances when a song ends
+                controller.setMediaItems(playlist.map { MediaItem.fromUri(it.uri) }, index, 0L)
+            } else {
+                controller.setMediaItem(MediaItem.fromUri(song.uri))
+            }
+            controller.prepare()
+            controller.play()
+        }
         isPlaying = true
     }
 
@@ -259,6 +267,27 @@ fun MainScreen(
         getController()?.repeatMode = when (repeatMode) { 1 -> Player.REPEAT_MODE_ALL; 2 -> Player.REPEAT_MODE_ONE; else -> Player.REPEAT_MODE_OFF }
     }
 
+    // Keep the UI in sync with the player: follow auto-advanced tracks and play/pause
+    // (including changes made from the notification buttons).
+    LaunchedEffect(Unit) {
+        var c = getController()
+        while (c == null) {
+            kotlinx.coroutines.delay(100)
+            c = getController()
+        }
+        val controller = c ?: return@LaunchedEffect
+        controller.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val idx = controller.currentMediaItemIndex
+                if (idx in playlist.indices) currentSong = playlist[idx]
+            }
+
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+        })
+    }
+
     Scaffold(
         bottomBar = {
             NavigationBar(containerColor = PureBlack, contentColor = Color.White) {
@@ -311,8 +340,12 @@ fun MainScreen(
                             getController()?.let { c ->
                                 if (c.isPlaying) { c.pause(); isPlaying = false }
                                 else {
-                                    if (c.mediaItemCount == 0 && currentSong != null) { c.setMediaItem(MediaItem.fromUri(currentSong!!.uri)); c.prepare() }
-                                    c.play(); isPlaying = true
+                                    if (c.mediaItemCount == 0 && currentSong != null) {
+                                        playSong(currentSong!!)
+                                    } else {
+                                        if (c.playbackState == Player.STATE_ENDED) c.seekTo(0)
+                                        c.play(); isPlaying = true
+                                    }
                                 }
                             }
                         },
