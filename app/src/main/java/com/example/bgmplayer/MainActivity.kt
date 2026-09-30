@@ -3,6 +3,7 @@ package com.example.bgmplayer
 import android.Manifest
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +56,10 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.floor
 
 // ── Mood Definitions ──
@@ -101,18 +107,27 @@ data class Song(val title: String, val uri: Uri)
 private const val PREFS_NAME = "bgm_player_prefs"
 private const val KEY_FOLDER_URI = "last_folder_uri"
 private const val KEY_MOOD = "selected_mood"
+private const val KEY_LAST_SONG_URI = "last_song_uri"
+private const val KEY_LAST_POSITION = "last_position"
+private const val KEY_SHUFFLE = "shuffle_enabled"
+private const val KEY_REPEAT = "repeat_mode"
 
-fun loadSongsFromFolder(context: Context, treeUri: Uri): Pair<String, List<Song>> {
-    val docDir = DocumentFile.fromTreeUri(context, treeUri)
-    val name = docDir?.name ?: "Selected Folder"
-    val songs = mutableListOf<Song>()
-    docDir?.listFiles()?.forEach { file ->
-        if (file.isFile && (file.name?.lowercase()?.endsWith(".mp3") == true)) {
-            file.name?.let { songs.add(Song(it, file.uri)) }
+/**
+ * Walks the picked folder off the main thread: every [DocumentFile] property is a
+ * binder call into the DocumentsProvider, which janks or ANRs on large folders.
+ */
+suspend fun loadSongsFromFolder(context: Context, treeUri: Uri): Pair<String, List<Song>> =
+    withContext(Dispatchers.IO) {
+        val docDir = DocumentFile.fromTreeUri(context, treeUri)
+        val name = docDir?.name ?: "Selected Folder"
+        val songs = mutableListOf<Song>()
+        docDir?.listFiles()?.forEach { file ->
+            if (file.isFile && (file.name?.lowercase()?.endsWith(".mp3") == true)) {
+                file.name?.let { songs.add(Song(it, file.uri)) }
+            }
         }
+        Pair(name, songs)
     }
-    return Pair(name, songs)
-}
 
 fun formatTime(ms: Long): String {
     if (ms < 0) return "0:00"
@@ -179,6 +194,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Remember where we were, so the next launch can resume from there.
+        val c = mediaController ?: return
+        val uri = c.currentMediaItem?.localConfiguration?.uri?.toString() ?: return
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+            .putString(KEY_LAST_SONG_URI, uri)
+            .putLong(KEY_LAST_POSITION, c.currentPosition.coerceAtLeast(0L))
+            .apply()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         MediaController.releaseFuture(controllerFuture)
@@ -194,7 +220,7 @@ fun MainScreen(
     moodName: String,
     onMoodChange: (String) -> Unit
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable { mutableStateOf(0) }
     var playlist by remember { mutableStateOf(listOf<Song>()) }
     var currentSong by remember { mutableStateOf<Song?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
@@ -207,34 +233,120 @@ fun MainScreen(
     // The MediaController only exists once the MediaSessionService session is
     // connected; mirror it into state so effects can key off the live player.
     var controller by remember { mutableStateOf<MediaController?>(null) }
+    // A song requested before the session was bound, replayed once it connects.
+    var pendingSong by remember { mutableStateOf<Song?>(null) }
 
     val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+    val scope = rememberCoroutineScope()
 
-    fun loadAndSaveFolder(treeUri: Uri) {
-        context.contentResolver.takePersistableUriPermission(treeUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    // The ExoPlayer queue is the source of truth. Map its current item back to a
+    // playlist entry by URI rather than trusting the queue index to line up.
+    fun resolveSong(mediaItem: MediaItem?): Song? {
+        val uri = mediaItem?.localConfiguration?.uri ?: return null
+        return playlist.firstOrNull { it.uri == uri }
+    }
+
+    fun refreshProgress(c: MediaController) {
+        currentPosition = c.currentPosition.coerceAtLeast(0L)
+        duration = c.duration.coerceAtLeast(0L)
+    }
+
+    fun persistProgress(c: MediaController) {
+        val uri = c.currentMediaItem?.localConfiguration?.uri?.toString() ?: return
+        prefs.edit()
+            .putString(KEY_LAST_SONG_URI, uri)
+            .putLong(KEY_LAST_POSITION, c.currentPosition.coerceAtLeast(0L))
+            .apply()
+    }
+
+    // Mirror the player's real state into the UI. Needed because a freshly added
+    // Player.Listener never fires with the current values.
+    fun syncFrom(c: MediaController) {
+        isPlaying = c.isPlaying
+        isShuffle = c.shuffleModeEnabled
+        repeatMode = when (c.repeatMode) {
+            Player.REPEAT_MODE_ALL -> 1
+            Player.REPEAT_MODE_ONE -> 2
+            else -> 0
+        }
+        resolveSong(c.currentMediaItem)?.let { currentSong = it }
+        refreshProgress(c)
+    }
+
+    // Picking a new folder stops the previous queue; the new folder is only queued
+    // on the next tap, so the UI and the player can't disagree about what plays.
+    suspend fun pickFolder(treeUri: Uri) {
+        try {
+            context.contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {
+            // A provider that offers no persistable grant must not crash the picker.
+        }
         val (name, songs) = loadSongsFromFolder(context, treeUri)
         folderName = name
         // Keep folder order stable; ExoPlayer owns shuffle via shuffleModeEnabled.
         playlist = songs
-        if (songs.isNotEmpty() && currentSong == null) currentSong = playlist.first()
-        prefs.edit().putString(KEY_FOLDER_URI, treeUri.toString()).apply()
+        getController()?.let { c -> c.pause(); c.clearMediaItems() }
+        currentSong = songs.firstOrNull()
+        currentPosition = 0L
+        duration = 0L
+        prefs.edit()
+            .putString(KEY_FOLDER_URI, treeUri.toString())
+            .remove(KEY_LAST_SONG_URI)
+            .remove(KEY_LAST_POSITION)
+            .apply()
+    }
+
+    // Rebuild the previous session: the saved folder always, and the saved queue
+    // position only when the session isn't already playing something (which is the
+    // case when the Activity was recreated, e.g. on rotation).
+    suspend fun restoreSavedPlayback(c: MediaController) {
+        val savedUri = prefs.getString(KEY_FOLDER_URI, null) ?: return
+        val uri = Uri.parse(savedUri)
+        if (context.contentResolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }) return
+        val (name, songs) = loadSongsFromFolder(context, uri)
+        playlist = songs
+        folderName = name
+        if (songs.isEmpty()) return
+
+        val savedSongUri = prefs.getString(KEY_LAST_SONG_URI, null)
+        val savedIndex = songs.indexOfFirst { it.uri.toString() == savedSongUri }.takeIf { it >= 0 } ?: 0
+        val savedPosition = prefs.getLong(KEY_LAST_POSITION, 0L)
+
+        if (c.mediaItemCount > 0) {
+            currentSong = resolveSong(c.currentMediaItem) ?: songs.getOrNull(savedIndex)
+            return
+        }
+
+        currentSong = songs.getOrNull(savedIndex)
+        c.shuffleModeEnabled = prefs.getBoolean(KEY_SHUFFLE, false)
+        c.repeatMode = prefs.getInt(KEY_REPEAT, Player.REPEAT_MODE_OFF)
+        c.setMediaItems(songs.map { MediaItem.fromUri(it.uri) }, savedIndex, savedPosition.coerceAtLeast(0L))
+        c.prepare()
+        // Restored paused: launching the app must never start audio on its own.
+        c.pause()
     }
 
     fun playSong(song: Song) {
-        currentSong = song
         val c = getController()
-        if (c != null) {
-            val index = playlist.indexOfFirst { it.uri == song.uri }
-            if (index >= 0) {
-                // Load the whole queue so ExoPlayer auto-advances when a song ends
-                c.setMediaItems(playlist.map { MediaItem.fromUri(it.uri) }, index, 0L)
-            } else {
-                c.setMediaItem(MediaItem.fromUri(song.uri))
-            }
-            c.prepare()
-            c.play()
+        if (c == null) {
+            // The session isn't bound yet; replay this once it connects.
+            currentSong = song
+            pendingSong = song
+            return
         }
-        isPlaying = true
+        currentSong = song
+        val index = playlist.indexOfFirst { it.uri == song.uri }
+        when {
+            // Load the whole queue so ExoPlayer auto-advances when a song ends.
+            index >= 0 -> c.setMediaItems(playlist.map { MediaItem.fromUri(it.uri) }, index, 0L)
+            // Song isn't in the loaded folder (a stale selection): play the playlist
+            // from the start rather than a lone item, which would kill auto-advance.
+            playlist.isNotEmpty() -> c.setMediaItems(playlist.map { MediaItem.fromUri(it.uri) }, 0, 0L)
+            else -> c.setMediaItem(MediaItem.fromUri(song.uri))
+        }
+        c.prepare()
+        c.play()
+        // isPlaying comes from Player.Listener#onIsPlayingChanged, not from here.
     }
 
     // Let ExoPlayer own queue navigation so shuffle and repeat modes are honoured.
@@ -252,40 +364,52 @@ fun MainScreen(
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri: Uri? -> uri?.let { loadAndSaveFolder(it) } }
+    ) { uri: Uri? -> uri?.let { picked -> scope.launch { pickFolder(picked) } } }
 
-    LaunchedEffect(Unit) {
-        if (!folderLoaded) {
-            folderLoaded = true
-            val savedUri = prefs.getString(KEY_FOLDER_URI, null)
-            if (savedUri != null) {
-                try {
-                    val uri = Uri.parse(savedUri)
-                    if (context.contentResolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission }) {
-                        val (name, songs) = loadSongsFromFolder(context, uri)
-                        folderName = name; playlist = songs
-                        if (songs.isNotEmpty()) currentSong = songs.first()
-                    }
-                } catch (_: Exception) { prefs.edit().remove(KEY_FOLDER_URI).apply() }
-            }
-        }
-    }
-
-    // Keyed on the controller too, so settings chosen before the session connects
-    // are still applied once it does.
-    LaunchedEffect(isShuffle, controller) { controller?.shuffleModeEnabled = isShuffle }
-    LaunchedEffect(repeatMode, controller) {
-        controller?.repeatMode = when (repeatMode) { 1 -> Player.REPEAT_MODE_ALL; 2 -> Player.REPEAT_MODE_ONE; else -> Player.REPEAT_MODE_OFF }
-    }
-
-    // Wait for the MediaSessionService session to connect, then mirror it into state.
+    // Wait for the MediaSessionService session, restore the previous playback state,
+    // then honour anything the user asked for while it was still connecting.
     LaunchedEffect(Unit) {
         var c = getController()
         while (c == null) {
-            kotlinx.coroutines.delay(100)
+            delay(100)
             c = getController()
         }
         controller = c
+        if (!folderLoaded) {
+            folderLoaded = true
+            try {
+                restoreSavedPlayback(c)
+            } catch (_: Exception) {
+                prefs.edit().remove(KEY_FOLDER_URI).apply()
+            }
+        }
+        syncFrom(c)
+        pendingSong?.let { pending ->
+            pendingSong = null
+            playSong(pending)
+        }
+    }
+
+    // currentSong follows whatever track the player is actually on.
+    LaunchedEffect(playlist, controller) {
+        val c = controller ?: return@LaunchedEffect
+        resolveSong(c.currentMediaItem)?.let { currentSong = it }
+    }
+
+    // Idempotent: only writes when the player disagrees with the UI, so values that
+    // came *from* the player are never fought over after reconnecting.
+    LaunchedEffect(isShuffle, controller) {
+        val c = controller ?: return@LaunchedEffect
+        if (c.shuffleModeEnabled != isShuffle) c.shuffleModeEnabled = isShuffle
+    }
+    LaunchedEffect(repeatMode, controller) {
+        val c = controller ?: return@LaunchedEffect
+        val mode = when (repeatMode) {
+            1 -> Player.REPEAT_MODE_ALL
+            2 -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+        if (c.repeatMode != mode) c.repeatMode = mode
     }
 
     // Keep the UI in sync with the player: follow auto-advanced tracks, play/pause,
@@ -297,8 +421,15 @@ fun MainScreen(
         } else {
             val listener = object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    val idx = c.currentMediaItemIndex
-                    if (idx in playlist.indices) currentSong = playlist[idx]
+                    resolveSong(mediaItem)?.let { currentSong = it }
+                    persistProgress(c)
+                    refreshProgress(c)
+                }
+
+                // Also fires when a prepared track becomes READY, which is what gives
+                // a paused song its duration.
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    refreshProgress(c)
                 }
 
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -307,6 +438,7 @@ fun MainScreen(
 
                 override fun onShuffleModeEnabledChanged(enabled: Boolean) {
                     isShuffle = enabled
+                    prefs.edit().putBoolean(KEY_SHUFFLE, enabled).apply()
                 }
 
                 override fun onRepeatModeChanged(mode: Int) {
@@ -315,6 +447,7 @@ fun MainScreen(
                         Player.REPEAT_MODE_ONE -> 2
                         else -> 0
                     }
+                    prefs.edit().putInt(KEY_REPEAT, mode).apply()
                 }
             }
             c.addListener(listener)
@@ -346,9 +479,17 @@ fun MainScreen(
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             LaunchedEffect(isPlaying) {
+                var ticksSinceSave = 0
                 while (isPlaying) {
-                    getController()?.let { currentPosition = it.currentPosition; duration = it.duration.coerceAtLeast(0) }
-                    kotlinx.coroutines.delay(500)
+                    getController()?.let { c ->
+                        refreshProgress(c)
+                        // Persist progress roughly every 5s so a relaunch resumes nearby.
+                        if (++ticksSinceSave >= 10) {
+                            ticksSinceSave = 0
+                            persistProgress(c)
+                        }
+                    }
+                    delay(500)
                 }
             }
 
@@ -371,14 +512,16 @@ fun MainScreen(
                         currentPosition = currentPosition, duration = duration,
                         isShuffle = isShuffle, repeatMode = repeatMode, mood = mood,
                         onPlayPause = {
+                            // isPlaying is never set here: Player.Listener reports it.
                             getController()?.let { c ->
-                                if (c.isPlaying) { c.pause(); isPlaying = false }
-                                else {
+                                if (c.isPlaying) {
+                                    c.pause()
+                                } else {
                                     if (c.mediaItemCount == 0 && currentSong != null) {
                                         playSong(currentSong!!)
                                     } else {
                                         if (c.playbackState == Player.STATE_ENDED) c.seekTo(0)
-                                        c.play(); isPlaying = true
+                                        c.play()
                                     }
                                 }
                             }
@@ -398,8 +541,25 @@ fun MainScreen(
                         onChangeFolder = { folderPickerLauncher.launch(null) },
                         onMoodChange = onMoodChange,
                         onClearFolder = {
-                            prefs.edit().remove(KEY_FOLDER_URI).apply()
+                            val oldUri = prefs.getString(KEY_FOLDER_URI, null)
+                            prefs.edit()
+                                .remove(KEY_FOLDER_URI)
+                                .remove(KEY_LAST_SONG_URI)
+                                .remove(KEY_LAST_POSITION)
+                                .apply()
+                            if (oldUri != null) {
+                                try {
+                                    context.contentResolver.releasePersistableUriPermission(
+                                        Uri.parse(oldUri), Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                    )
+                                } catch (_: Exception) {
+                                    // Not held anymore: nothing to release.
+                                }
+                            }
+                            // Without this the queue keeps playing while the UI shows nothing.
+                            getController()?.let { c -> c.pause(); c.clearMediaItems() }
                             playlist = listOf(); currentSong = null; folderName = "No folder selected"
+                            isPlaying = false; currentPosition = 0L; duration = 0L
                         }
                     )
                 }

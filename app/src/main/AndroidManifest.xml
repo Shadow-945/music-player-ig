@@ -30,10 +30,13 @@
             </intent-filter>
         </service>
 
+        <!-- singleTop so tapping the media notification reuses the running task
+             instead of stacking a second Activity. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="BGM Player"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.BGMPlayer">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
